@@ -146,7 +146,7 @@ object generator extends Module {
       build.schemaview.jvm,
     )
 
-    object test extends ScalaTests, GeneratorTests {
+    object test extends ScalaTests, CommonTestModule {
       override def moduleDeps = super.moduleDeps :+ build.tests.jvm
       override def mvnDeps = super.mvnDeps() ++ Seq(
         mvn"org.eclipse.rdf4j:rdf4j-shacl:5.3.0",
@@ -160,7 +160,7 @@ object generator extends Module {
       build.schemaview.js,
     )
 
-    object test extends ScalaJSTests, GeneratorTests {
+    object test extends ScalaJSTests, CommonTestModule {
       override def moduleDeps = super.moduleDeps :+ build.tests.js
     }
   }
@@ -170,7 +170,7 @@ object generator extends Module {
       build.schemaview.native,
     )
 
-    object test extends ScalaNativeTests, GeneratorTests {
+    object test extends ScalaNativeTests, CommonTestModule {
       override def moduleDeps = super.moduleDeps :+ build.tests.native
     }
   }
