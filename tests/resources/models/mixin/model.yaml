@@ -4,7 +4,7 @@ name: mixin
 instantiates:
   - https://neverblink.eu/linkml/tests/Metadata
 extensions:
-  derivedEquals: basic
+  derived_equals: basic
 
 imports:
   - linkml:types

@@ -97,7 +97,7 @@ final case class ClassView(cls: ClassDefinition, definingSchema: SchemaDefinitio
     *   `ancestors(x) = x.mixins, x.isA, ancestors(x.isA), ancestors(x.mixins)`
     */
   def ancestors(reflexive: Boolean): Iterable[ClassView] =
-    Closure(this, getParents, reflexive)
+    Closure.get(this, getParents, reflexive)
 
   /** Get the slots that are directly defined in this class.
     */
@@ -234,6 +234,26 @@ final case class ClassView(cls: ClassDefinition, definingSchema: SchemaDefinitio
           )
       },
     ).getOrElse(InlineType.plain)
+
+  /** Materialize this [[ClassView]] into a derived [[ClassDefinition]]. This inlines all slots as
+    * attributes, and clears any inheritance slots. Additionally, sets the class uri using
+    * [[SchemaView]] logic.
+    */
+  def materialize: ClassDefinitionImpl = {
+    inner.asInstanceOf[ClassDefinitionImpl].copy(
+      classUri = Some(uriOrCurie),
+      isA = None,
+      mixins = Seq.empty,
+      attributes = derivedAttributes.map((slotKey, slot) =>
+        slotKey -> slot.inner.asInstanceOf[SlotDefinitionImpl].copy(
+          isA = None,
+          mixins = Seq.empty,
+        ),
+      ),
+      slots = Seq.empty,
+      slotUsage = Map.empty,
+    )
+  }
 }
 
 final case class SlotView(slot: SlotDefinition, definingSchema: SchemaDefinition)(using
@@ -260,7 +280,7 @@ final case class SlotView(slot: SlotDefinition, definingSchema: SchemaDefinition
     *   `ancestors(x) = x.mixins, x.isA, ancestors(x.isA), ancestors(x.mixins)`
     */
   def ancestors(reflexive: Boolean): Iterable[SlotDefinition] =
-    Closure(slot, getParents, reflexive)
+    Closure.get(slot, getParents, reflexive)
 
   /** Test whether this slot is declared as inlined, or is implicitly inlined as its range is a
     * class without an identifier

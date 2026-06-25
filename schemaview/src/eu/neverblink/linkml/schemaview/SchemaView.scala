@@ -51,19 +51,19 @@ final case class SchemaView(schemas: Seq[SchemaDefinition])
       case _ => compiletime.error("SchemaView can't dereference " + compiletime.codeOf(ref))
     }).asInstanceOf[Option[T]]
 
-  /** All types defined in the loaded schemas, in tuples (definingSchema, typeDefinition).
+  /** All types defined in the loaded schemas, as views.
     */
   lazy val types: Map[String, TypeView] =
     schemas.map(schema => schema.types.map((k, v) => (k, TypeView(v, schema)))).reduce(_ ++ _)
 
-  /** All slots defined in the loaded schemas, in tuples (definingSchema, slotDefinition).
+  /** All slots defined in the loaded schemas, as views.
     */
   lazy val slotDefinitions: Map[String, SlotView] =
     schemas.map(schema => schema.slotDefinitions.map((k, v) => (k, SlotView(v, schema)))).reduce(
       _ ++ _,
     )
 
-  /** All classes defined in the loaded schemas, in tuples (definingSchema, classDefinition).
+  /** All classes defined in the loaded schemas, as views.
     */
   lazy val classes: Map[String, ClassView] =
     schemas.map(schema => schema.classes.map((k, v) => (k, ClassView(v, schema)))).reduce(_ ++ _)
@@ -82,7 +82,8 @@ final case class SchemaView(schemas: Seq[SchemaDefinition])
     * @param inlinedOnly
     *   Whether to include only classes that are inlined in the slots where they are used. If false,
     *   all reachable classes will be included regardless of whether they are inlined or not.
-    * @return
+    * @todo
+    *   LNK-111 Merge with [[reachableFrom()]]
     */
   def classesReachableFrom(
       from: ClassView,
@@ -104,12 +105,62 @@ final case class SchemaView(schemas: Seq[SchemaDefinition])
             }
     found.toMap
 
-  /** All enums defined in the loaded schemas, in tuples (definingSchema, enumDefinition).
+  /** Find all [[Element]]s that are reachable from the [[fromClasses]]. Also includes types, enums,
+    * slots.
+    *
+    * @param fromClasses
+    *   Class definition(s) to start the reachability query from.
+    * @param derivedClasses
+    *   If true, will only consider `derivedAttributes` for class derivation. This is in-line with
+    *   what [[ClassView.materialize]] will clear. If false, will instead mark inheritance-related
+    *   slots as reachable.
+    *
+    * @todo
+    *   Make this search more robust (LNK-110). Currently, this will prune things incorrectly if
+    *   there are any boolean slots (like `any_of`)
+    *
+    * @todo
+    *   LNK-111 Clean this up and merge with [[classesReachableFrom()]]
+    *
+    * @return
+    *   A set of elements reachable from [[rootClass]] and their [[ElementTypeTag]]s
+    */
+  def reachableFrom(
+      fromClasses: Seq[ClassDefinition],
+      derivedClasses: Boolean,
+  ): Set[(ElementTypeTag, Element)] =
+    Closure.reflexive[(ElementTypeTag, Element)](
+      fromClasses.map(ElementTypeTag.classDef -> _),
+      el => {
+        val elements: Iterable[Element] = el._2 match {
+          case cls: ClassDefinition =>
+            if !derivedClasses then classes(cls.name).derivedAttributes.map(_._2.slot)
+            else
+              (cls.slots ++ cls.isA ++ cls.mixins).flatMap(_.resolve)
+                ++ cls.attributes.values ++ cls.slotUsage.values
+          case typeDefinition: TypeDefinition =>
+            (typeDefinition.typeof ++ typeDefinition.unionOf).flatMap(_.resolve)
+          case enumDefinition: EnumDefinition =>
+            enumDefinition.inherits.flatMap(_.resolve)
+          case slotDefinition: SlotDefinition =>
+            val inherited = slotDefinition.isA ++ slotDefinition.mixins
+            (slotDefinition.range ++ slotDefinition.domain ++ (
+              if derivedClasses then inherited
+              else Seq.empty
+            )).flatMap(_.resolve)
+          case _ => Seq.empty
+        }
+
+        elements.map(el => ElementTypeTag(el) -> el)
+      },
+    ).toSet
+
+  /** All enums defined in the loaded schemas, as views.
     */
   lazy val enums: Map[String, EnumView] =
     schemas.map(schema => schema.enums.map((k, v) => (k, EnumView(v, schema)))).reduce(_ ++ _)
 
-  /** All subsets defined in the loaded schemas, in tuples (definingSchema, subsetDefinition).
+  /** All subsets defined in the loaded schemas, as views.
     */
   lazy val subsets: Map[String, SubsetView] =
     schemas.map(schema => schema.subsets.map((k, v) => (k, SubsetView(v, schema)))).reduce(_ ++ _)
@@ -375,6 +426,18 @@ object SchemaView {
       loadSchemasInternal(sUri, true, importer, visited)
     }
   }
+
+  enum ElementTypeTag:
+    case classDef, typeDef, slotDef, enumDef, other
+
+  object ElementTypeTag:
+    def apply(el: Element): ElementTypeTag = el match {
+      case _: ClassDefinition => classDef
+      case _: TypeDefinition => typeDef
+      case _: SlotDefinition => slotDef
+      case _: EnumDefinition => enumDef
+      case _ => other
+    }
 
   /** Create a [[BasicPrefixResolver]] based on the given schema. Loads metamodel emit_prefixes,
     * resolves "semweb_context" curi map and loads user defined prefixes.

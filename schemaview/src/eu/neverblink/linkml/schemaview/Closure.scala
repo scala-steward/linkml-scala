@@ -2,16 +2,30 @@ package eu.neverblink.linkml.schemaview
 
 import scala.collection.mutable
 
-private[schemaview] object Closure {
+object Closure {
+  def reflexive[T](start: T, function: T => Iterable[T]): Iterable[T] =
+    get(Seq(start), function, reflexive = true)
 
-  def apply[T](
-      start: T,
+  def reflexive[T](start: Iterable[T], function: T => Iterable[T]): Iterable[T] =
+    get(start, function, reflexive = true)
+
+  def irreflexive[T](start: T, function: T => Iterable[T]): Iterable[T] =
+    get(Seq(start), function, reflexive = false)
+
+  def irreflexive[T](start: Iterable[T], function: T => Iterable[T]): Iterable[T] =
+    get(start, function, reflexive = false)
+
+  def get[T](start: T, function: T => Iterable[T], reflexive: Boolean): Iterable[T] =
+    get(Seq(start), function, reflexive)
+
+  def get[T](
+      start: Iterable[T],
       function: T => Iterable[T],
-      reflexive: Boolean = true,
+      reflexive: Boolean,
   ): Iterable[T] = {
-    val ret = if reflexive then mutable.ArrayBuffer(start) else mutable.ArrayBuffer.empty[T]
+    val ret = if reflexive then mutable.ArrayBuffer.from(start) else mutable.ArrayBuffer.empty[T]
     val visited = mutable.ArrayBuffer.empty[T]
-    val todo = mutable.ArrayDeque[T](start)
+    val todo = mutable.ArrayDeque.from(start)
 
     while todo.nonEmpty do {
       val current = todo.removeLast()
