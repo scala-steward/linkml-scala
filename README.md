@@ -130,15 +130,16 @@ LinkML-Scala uses [mill](https://mill-build.org/) as the build tool. A bootstrap
 
 Common tasks with mill:
 
+- Run CLI directly: `./mill cli.jvm.run --help`
 - Scan the mill project structure: `./mill resolve _`
 - Compile all modules: `./mill __.compile`
 - Run all tests: `./mill __.test` (prefer specific test running for faster feedback, like `./mill generator.jvm.test`)
-- Run Scalafix transformation: `./mill __.fix`
-- Run Scalafmt reformatting: `./mill __.reformat`
+- Lint the project `./mill lint` (scalafix + scalafmt)
+- Re-generate the metamodel classes `./mill metamodel.regenerate`
+- Fetch the metamodel definitions from [linkml/linkml-model](https://github.com/linkml/linkml-model) `./mill metamodel.definitions`
 - Publish artifacts locally: `./mill __.publishLocal`
 - Assembly runnable .jar: `./mill cli.jvm.assembly`
 - Build native binary: `./mill cli.jvm.nativeImage` (requires Coursier (cs) to be installed)
-- Run CLI directly: `./mill cli.jvm.run --help`
 
 ### Releasing with GitHub UI
 
