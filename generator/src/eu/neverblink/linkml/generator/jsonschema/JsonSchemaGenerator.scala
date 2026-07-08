@@ -2,7 +2,7 @@ package eu.neverblink.linkml.generator.jsonschema
 
 import eu.neverblink.linkml.metamodel.Anything
 import eu.neverblink.linkml.schemaview.*
-import sttp.apispec.{AnySchema, Pattern, Schema, SchemaFormat, SchemaType}
+import sttp.apispec.{AnySchema, ExampleSingleValue, Pattern, Schema, SchemaFormat, SchemaType}
 import sttp.apispec.circe.encoderSchema
 
 import java.lang
@@ -16,15 +16,13 @@ class JsonSchemaGenerator(using sv: SchemaView) {
 
   /** Translate a class name into a JSON Schema form, respecting aliases and LinkML casing rules
     */
-  protected def className(cls: ClassView): MappedClassName = {
+  protected def className(cls: ClassView): MappedClassName =
     cls.cls.alias.getOrElse(Case.PascalCase(cls.cls.name))
-  }
 
   /** Translate a slot name into a JSON Schema form, respecting aliases and LinkML casing rules
     */
-  protected def slotName(slot: SlotView): MappedSlotName = {
+  protected def slotName(slot: SlotView): MappedSlotName =
     slot.slot.alias.getOrElse(Case.deSpaceCase(slot.slot.name))
-  }
 
   /** Generate a Schema for a specific slot, which maps to a JSON Schema property.
     * @param slot
@@ -44,14 +42,10 @@ class JsonSchemaGenerator(using sv: SchemaView) {
       needValue: mutable.Set[(MappedClassName, MappedSlotName)],
   ): (MappedSlotName, Schema) = {
     val range = slot.derivedRangeView.resolve.get
-    lazy val referenceSchema = Schema(SchemaType.String)
-      .copy($comment = Some(s"Reference to an instance of the '${range.inner.name}' LinkML class"))
     val slotSchema = range match {
       case classView: ClassView =>
-        if classView.uriStr == "https://w3id.org/linkml/Any" then Schema.Empty
-        else if !slot.derivedInlined && slot.slot.multivalued then referenceSchema.arrayOf
-        else if !slot.derivedInlined then referenceSchema
-        else {
+        if (classView.uriStr == "https://w3id.org/linkml/Any") Schema.Empty
+        else if (slot.derivedInlined) {
           val mappedClassName = className(classView)
           lazy val slotMap = classView.derivedAttributes
           InlineType(slot) match {
@@ -74,12 +68,21 @@ class JsonSchemaGenerator(using sv: SchemaView) {
                 mappedClassName + "__simple_dict_value",
               ).dictOf // TODO LNK-34: or null
           }
+        } else {
+          val referenceSchema = Schema(SchemaType.String)
+            .copy($comment =
+              Some(s"Reference to an instance of the '${range.inner.name}' LinkML class"),
+            )
+          if (slot.slot.multivalued) referenceSchema.arrayOf
+          else referenceSchema
         }
       case typeView: TypeView =>
         if slot.slot.multivalued then typeToRuntime(typeView).arrayOf
         else typeToRuntime(typeView)
-      // TODO LNK-32: True enums
-      case _: EnumView => Schema(SchemaType.String)
+      case enumView: EnumView =>
+        val referenceSchema = Schema.referenceTo("#/$defs/", enumView._enum.name)
+        if (slot.slot.multivalued) referenceSchema.arrayOf
+        else referenceSchema
       case _ => throw RuntimeException(s"Couldn't map range '${range.inner.name}'")
     }
     slotName(slot) -> slotSchema.copy(
@@ -126,23 +129,35 @@ class JsonSchemaGenerator(using sv: SchemaView) {
     // If a tree root is defined, only include classes reachable from the tree root (pruning).
     // Otherwise, include all classes in the schema view.
     val classes = maybeTreeRoot
-      .map(root => sv.classesReachableFrom(root, includeAncestors = false, inlinedOnly = true))
-      .getOrElse(sv.classes)
-    val defs = for cls <- classes.values yield {
+      .fold(sv.classes)(root =>
+        sv.classesReachableFrom(root, includeAncestors = false, inlinedOnly = true),
+      )
+    val defsClasses = for cls <- classes.values yield {
       val slots = cls.derivedAttributes
       val properties = for slot <- slots.values yield {
         generateSlotSchema(slot, needKeyless, needValue)
       }
-      val requiredSlots = slots.values.filter(_.slot.required).map(_.slot.name).toList
+      val requiredSlots = slots.values.collect {
+        case s if s.slot.required => s.slot.name
+      }
       className(cls) -> Schema(SchemaType.Object).copy(
-        required = requiredSlots,
+        required = requiredSlots.toList,
         properties = properties.to(immutable.ListMap),
-        additionalProperties = if open then Some(AnySchema.Anything) else Some(AnySchema.Nothing),
+        additionalProperties = Some(if (open) AnySchema.Anything else AnySchema.Nothing),
         title = cls.cls.title,
         description = cls.cls.description,
       )
     }
-    val defMap = defs.toMap
+    val defsEnums = for ev <- sv.enums.values yield {
+      val enum_ = ev._enum
+      enum_.name -> Schema(SchemaType.Object).copy(
+        `type` = Some(List(SchemaType.String)),
+        `enum` = Some(enum_.permissibleValues.keys.map(ExampleSingleValue(_)).toList),
+        title = enum_.title,
+        description = enum_.description,
+      )
+    }
+    val defMap = defsClasses.toMap
     val defsKeyless = for (className, idField) <- needKeyless yield {
       val classSchema = defMap(className)
       className + "__identifier_optional" -> classSchema.copy(required =
@@ -169,14 +184,14 @@ class JsonSchemaGenerator(using sv: SchemaView) {
               s"Tree root inline type '$inlineType' is not implemented for JSON Schema.",
             )
         }
-      case None => Schema.Empty
+      case _ => Schema.Empty
     }
     baseSchema.copy(
       $schema = Some("https://json-schema.org/draft/2020-12/schema"),
       $id = Some(sv.root.id.uri(using sv.rootPrefixResolver)),
       title = Some(sv.root.title.getOrElse(sv.root.name)),
       description = sv.root.description,
-      $defs = Some((defs ++ defsKeyless ++ defsValues).to(immutable.ListMap)),
+      $defs = Some((defsClasses ++ defsEnums ++ defsKeyless ++ defsValues).to(immutable.ListMap)),
     )
   }
 
