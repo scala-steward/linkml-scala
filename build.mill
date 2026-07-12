@@ -129,7 +129,7 @@ object metamodel extends Module {
 
     object test extends ScalaTests, CommonTestModule {
       override def mvnDeps = super.mvnDeps() ++ Seq(
-        mvn"io.circe::circe-core::0.14.15",
+        mvn"io.circe::circe-core::0.14.16",
       )
     }
   }
@@ -145,7 +145,7 @@ object metamodel extends Module {
 
     object test extends ScalaJSTests, CommonTestModule {
       override def mvnDeps = super.mvnDeps() ++ Seq(
-        mvn"io.circe::circe-core::0.14.15",
+        mvn"io.circe::circe-core::0.14.16",
       )
     }
   }
