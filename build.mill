@@ -27,7 +27,7 @@ import millbuild.{NpmPackage, TsDefsGen}
 
 import java.net.InetSocketAddress
 
-val scala = "3.8.3"
+val scala = "3.8.4"
 val scalaJS = "1.22.0"
 
 object LinkMlAliases extends Aliases {
